@@ -1,0 +1,71 @@
+name: Sync feature.md to GitHub Issues
+
+on:
+  push:
+    paths:
+      - 'feature.md'
+    branches:
+      - main
+      - master
+
+jobs:
+  sync-features:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse and sync features
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const content = fs.readFileSync('feature.md', 'utf8');
+            const lines = content.split('\n');
+
+            const features = [];
+            let current = null;
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (trimmed.startsWith('## ')) {
+                const rest = trimmed.slice(3);
+                if (rest.startsWith('[DONE]')) continue;
+
+                const match = rest.match(/^\[([^\]]+)\]\s+(.+)/);
+                if (match) {
+                  if (current) features.push(current);
+                  current = { tag: match[1], title: match[2], body: '' };
+                }
+              } else if (current && trimmed && !trimmed.startsWith('#')) {
+                current.body += (current.body ? '\n' : '') + trimmed;
+              }
+            }
+            if (current) features.push(current);
+
+            // Get existing issues
+            const { data: existingIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              per_page: 100,
+            });
+
+            const existingTitles = new Set(existingIssues.map(i => i.title));
+
+            for (const feature of features) {
+              if (existingTitles.has(feature.title)) {
+                console.log(`Skipping: ${feature.title} (already exists)`);
+                continue;
+              }
+
+              console.log(`Creating issue: ${feature.title}`);
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: feature.title,
+                body: feature.body || `Feature from feature.md\n\nCategory: ${feature.tag}`,
+                labels: [feature.tag],
+              });
+            }
