@@ -10,5 +10,6 @@ WORKDIR /app
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/package*.json ./
 RUN npm ci --omit=dev
+ENV PORT=5173
 EXPOSE 5173
 CMD ["node", "build"]
